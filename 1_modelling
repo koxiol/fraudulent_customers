@@ -7,7 +7,7 @@ PREP DATA FOR MODELLING and MODELLING:
         
 '''
 from sklearn.model_selection import train_test_split
-data = pd.read_parquet('output/data.parquet')
+data = pd.read_parquet('output/data_prepared.parquet')
 #outliers
 
 data = data[data.CUSTOMER_ID!=7]
