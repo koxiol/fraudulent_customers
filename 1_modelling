@@ -1,0 +1,177 @@
+
+'''
+PREP DATA FOR MODELLING and MODELLING:
+    *outliers - customer id =7 to be removed, no need duplicated column
+    *null vaules
+        --remove customers with no orders - noneeded noise
+        
+'''
+from sklearn.model_selection import train_test_split
+data = pd.read_parquet('output/data.parquet')
+#outliers
+
+data = data[data.CUSTOMER_ID!=7]
+data.pop('DUPLICATED')
+
+#null
+data = data[~(data.NO_OF_ORDERS.isna())]
+data.to_csv('/it/makozlow/python_development/ad_hoc/nauka/model_data.csv')
+## add target var
+data = data.merge(target)
+
+cols = data.columns
+
+x_columns=[]
+for c in cols:
+    if c not in ['fraudulent', 'CUSTOMER_ID']:
+        x_columns.append(c)
+
+X = data[x_columns]
+Y = data['fraudulent']
+
+X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = 0.2, random_state = 2)
+'''
+    MODELLING
+    BENCHMARK:
+    Data set is quite balanced 107 nonFraudulent vs 61 fraudulent
+    If clasify all as nonFradulent accuracy would be ~64%
+    
+'''
+#Quick look on performance with decision tree
+#Performance with tree depth = 3 gives us 85% of accuracy and shows avg_order_amnt, payment_method_type as most import variables
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.tree.export import export_text
+
+for i in range(1,15):
+    decision_tree = DecisionTreeClassifier(random_state=0, max_depth=i)
+    decision_tree = decision_tree.fit(X_train, y_train)
+    r = export_text(decision_tree, feature_names=x_columns)
+    #print(r)
+    print(accuracy_score(y_test, decision_tree.predict(X_test)))
+
+decision_tree = DecisionTreeClassifier(random_state=0, max_depth=5)
+decision_tree = decision_tree.fit(X_train, y_train)
+r = export_text(decision_tree, feature_names=x_columns)
+print(r)
+print(accuracy_score(y_test, decision_tree.predict(X_test)))
+
+#Try Regression
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+
+cols = data.columns
+
+x_columns=[]
+for c in cols:
+    if c not in ['fraudulent', 'CUSTOMER_ID']:
+        x_columns.append(c)
+
+X = data[x_columns]
+Y = data['fraudulent']
+
+s = StandardScaler()
+s.fit(X)
+X_scaled = pd.DataFrame(s.transform(X),columns = X.columns)
+
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, Y, test_size = 0.2, random_state = 2)
+
+clf = LogisticRegression(solver = 'liblinear')
+reg = clf.fit(X_train, y_train)
+reg.score(X_test, y_test)
+coef = X.columns.to_frame().reset_index(drop = True)
+coef['coef']=list(reg.coef_[0])
+coef = coef.sort_values('coef')
+
+#### Picking most important variables one by one
+coef['coef_abs'] = coef.coef.abs()
+coef = coef.sort_values('coef_abs', ascending = False)
+var = list(coef[0])
+
+coef = coef.reset_index(drop=True)
+
+vars_used = coef[0][0]
+vars_used = [vars_used]
+
+vars_check = []
+for v in list(coef[0]):
+    if v not in vars_used:
+        vars_check.append(v)
+counter =0 
+while counter < coef.shape[0]-1:
+    vars_check=[]
+    for v in list(coef[0]):
+        if v not in vars_used:
+            vars_check.append(v)
+    scores={}
+    for v in vars_check:
+        vs = vars_used.copy()
+        vs.append(v)
+        X = data[vs]
+        Y = data['fraudulent']
+
+        s = StandardScaler()
+        s.fit(X)
+        X_scaled = pd.DataFrame(s.transform(X),columns = X.columns)
+        X_train, X_test, y_train, y_test = train_test_split(X_scaled, Y, test_size = 0.2, random_state = 2)
+
+        clf = LogisticRegression(solver = 'liblinear')
+        reg = clf.fit(X_train, y_train)
+        scores[v] = reg.score(X_test, y_test)
+    best = max(scores, key=scores.get)
+    vars_used.append(best)
+    counter+=1
+
+#check performance with variables with logistic regression
+scores_r = {}
+for i in range(len(vars_used)):
+    variables = vars_used[:i+1]
+    X = data[variables]
+    Y = data['fraudulent']
+    s = StandardScaler()
+    s.fit(X)
+    X_scaled = pd.DataFrame(s.transform(X),columns = X.columns)
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, Y, test_size = 0.2, random_state = 2)
+    clf = LogisticRegression(solver = 'liblinear')
+    reg = clf.fit(X_train, y_train)
+    scores_r[i] = [reg.score(X_train, y_train), reg.score(X_test, y_test)]
+
+#check performance with variables with decision tree
+scores_d = {}
+for i in range(len(vars_used)):
+    variables = vars_used[:i+1]
+    X = data[variables]
+    Y = data['fraudulent']
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = 0.2, random_state = 2)
+    clf = DecisionTreeClassifier(max_depth=i+1)
+    tree = clf.fit(X_train, y_train)
+    scores_d[i] = [accuracy_score(y_train, tree.predict(X_train)),
+        accuracy_score(y_test, tree.predict(X_test))]
+
+'''
+Final MODEL
+ * MODEL: LOGISTIC REGRESSION
+ * ACCURACY ON train dataset: 89%
+ * ACCURACY ON TEST SET 92%
+ * VARIABLES USED:14
+ * VARIABLES LIST:
+    'AVG_ORDER_AMNT', 'B', 'e', 'c', 'o', 'ORDERS_DIFF_ADD_share', 'a', 'x', 'Rose Bancshares', 'Citizens First Banks', 'r', 'n', 'Grand Credit Corporation', 'ORDER_AMNT_MORE_50_cnt'
+ * MODEL COEFICIENT listed by reg.coef_
+ * COMMENT:
+ logistic regression perform better than decision tree and gives accaptable results
+ variables used in model vars_used[:14]
+ diff variables set gives same results on test set - choosen have least diff between accuracy on training and test set
+ vars_used[:2] gives same result on test set, but in this case more variable used should give less variance on real data
+''' 
+X = data[vars_used[:14]]
+Y = data['fraudulent']
+X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size = 0.2, random_state = 2)
+s = StandardScaler()
+s.fit(X)
+X_scaled = pd.DataFrame(s.transform(X),columns = X.columns)
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, Y, test_size = 0.2, random_state = 2)
+clf = LogisticRegression(solver = 'liblinear')
+reg = clf.fit(X_train, y_train)
+reg.score(X_train, y_train)
+reg.score(X_test, y_test)
+reg.coef_
