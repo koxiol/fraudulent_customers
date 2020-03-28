@@ -52,8 +52,16 @@ orders = pd.concat(orders, sort = True)
 payments = pd.concat(payments, sort = True)
 transactions = pd.concat(transactions, sort = True)
 ###DATA READING DONE
-
-
+#save data to exploratory analysis
+try:
+   os.mkdir('output')
+except:
+   pass
+orders.to_parquet('output/orders.parquet')
+payments.to_parquet('output/payments.parquet')
+transactions.to_parquet('output/transactions.parquet')
+customer.to_parquet('output/customer.parquet')
+target.to_parquet('output/target.parquet')
 '''
 DATA PREPARATION:
 FIRSTLY REMOVE DUPLICATED CUSTOMERS ON EMAILS - PHONES OK - coming back to EXPLORATORY ANALYSIS, mark duplicated mails
